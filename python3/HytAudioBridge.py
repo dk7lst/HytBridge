@@ -29,7 +29,23 @@ def signal_handler(signal, frame):
   print("Abort!")
   sys.exit(0)
 
-  # Klasse, die sich um das Audio (RCP+RTP) für einen Timeslot kümmert.
+def decodeCallType(ct):
+  CallTypeList = ["Pvt", "Grp", "All"]
+  if ct >= 0 and ct < len(CallTypeList):
+    return CallTypeList[ct]
+  return "invalid"
+
+def isQSOData(data):
+  return len(data) == 38 and data[0] == 0x32 and data[1] == 0x42 and data[2] == 0x00 and data[3] == 0x20
+
+def printQSOData(threadName, data):
+  RptId = int("%02X%02X%02X" % (data[9], data[10], data[11]), 16)
+  CT = decodeCallType(data[26])
+  DstId = int("%02X%02X%02X" % (data[30], data[29], data[28]), 16)
+  SrcId = int("%02X%02X%02X" % (data[34], data[33], data[32]), 16)
+  print(threadName, ":", CT, "call from", SrcId, "to", DstId, "via", RptId)
+
+# Klasse, die sich um das Audio (RCP+RTP) für einen Timeslot kümmert.
 class AudioSlot:
   def __init__(self, name, RptIP, RCP_Port, RTP_Port):
     # Portnummern merken:
@@ -37,6 +53,10 @@ class AudioSlot:
     self.RptIP = RptIP
     self.RCP_Port = RCP_Port
     self.RTP_Port = RTP_Port
+
+    # Konstanten:
+    self.WakeCallPacket = bytes.fromhex('324200050000')
+    self.IdleKeepAlivePacket = bytes.fromhex('324200020000')
 
     # Sockets anlegen:
     self.RCP_Sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -53,14 +73,22 @@ class AudioSlot:
 #    except:
 #      print("ERROR: Unable to start threads!", name)
 
+  def sendACK(self, seq):
+    AckPacket = bytearray(bytes.fromhex('324200010100'))
+    AckPacket[5] = seq;
+    self.RCP_Sock.sendto(AckPacket, (self.RptIP, self.RCP_Port))
+
   def RCP_Rx_Thread(self, threadName):
-    print(threadName, "RCP_Rx_Thread started")
+    #print(threadName, "RCP_Rx_Thread started")
     while True:
       data, addr = self.RCP_Sock.recvfrom(1024)
-      print(threadName, "RCP_Rx_Thread: received message:", data)
+      #print(threadName, "RCP_Rx_Thread: received message:", data)
+      if isQSOData(data):
+        self.sendACK(data[5])
+        printQSOData(threadName, data)
 
   def RTP_Rx_Thread(self, threadName):
-    print(threadName, "RTP_Rx_Thread started")
+    #print(threadName, "RTP_Rx_Thread started")
     wavefile = wave.open("HytAudioBridge." + threadName + ".wav", 'wb')
     wavefile.setparams((1, 2, 8000, 0, 'NONE', 'not compressed'))
     while True:
@@ -70,23 +98,19 @@ class AudioSlot:
         wavefile.writeframes(audioop.ulaw2lin(data[28:], 2))
 
   def RCP_Tx_Thread(self, threadName):
-    print(threadName, "RCP_Tx_Thread started")
-    WakeCall = bytes.fromhex('324200050000')
-    self.RCP_Sock.sendto(WakeCall, (self.RptIP, self.RCP_Port))
-    IdleKeepAlive = bytes.fromhex('324200020000')
+    #print(threadName, "RCP_Tx_Thread started")
+    self.RCP_Sock.sendto(self.WakeCallPacket, (self.RptIP, self.RCP_Port))
     while True:
-      self.RCP_Sock.sendto(IdleKeepAlive, (self.RptIP, self.RCP_Port))
+      self.RCP_Sock.sendto(self.IdleKeepAlivePacket, (self.RptIP, self.RCP_Port))
       time.sleep(2)
 
   def RTP_Tx_Thread(self, threadName):
-    print(threadName, "RTP_Tx_Thread started")
-    WakeCall = bytes.fromhex('324200050000')
-    self.RTP_Sock.sendto(WakeCall, (self.RptIP, self.RTP_Port))
-    IdleKeepAlive = bytes.fromhex('324200020000')
+    #print(threadName, "RTP_Tx_Thread started")
+    self.RTP_Sock.sendto(self.WakeCallPacket, (self.RptIP, self.RTP_Port))
     while True:
-      self.RTP_Sock.sendto(IdleKeepAlive, (self.RptIP, self.RTP_Port))
+      self.RTP_Sock.sendto(self.IdleKeepAlivePacket, (self.RptIP, self.RTP_Port))
       time.sleep(2)
-    
+
 print("HytAudioBridge 0.01")
 signal.signal(signal.SIGINT, signal_handler)
 
