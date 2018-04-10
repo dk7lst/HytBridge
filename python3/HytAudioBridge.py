@@ -7,6 +7,8 @@ import _thread
 import time
 import signal
 import sys
+import audioop
+import wave
 
 # IP-Adresse vom Repeater:
 #LOCAL_IP = "127.0.0.1"
@@ -59,13 +61,13 @@ class AudioSlot:
 
   def RTP_Rx_Thread(self, threadName):
     print(threadName, "RTP_Rx_Thread started")
-    pcmfile = open("HytAudioBridge." + threadName + ".pcm", 'wb')
+    wavefile = wave.open("HytAudioBridge." + threadName + ".wav", 'wb')
+    wavefile.setparams((1, 2, 8000, 0, 'NONE', 'not compressed'))
     while True:
       data, addr = self.RTP_Sock.recvfrom(1024)
       #print(threadName, "RTP_Rx_Thread: received message:", data)
       if data[0:2] == bytes.fromhex('9000'):
-        pcmfile.write(data[28:])
-        #pcmfile.write(data) # zum Test mit Headern schreiben
+        wavefile.writeframes(audioop.ulaw2lin(data[28:], 2))
 
   def RCP_Tx_Thread(self, threadName):
     print(threadName, "RCP_Tx_Thread started")
