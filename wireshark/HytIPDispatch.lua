@@ -63,14 +63,16 @@ function HyteraDissector(protname, prot, buffer, pinfo, tree)
 
   local PacketType = buffer(3, 1):uint()
   local PacketTypeStr
-  if PacketType == 0x20 then
-    PacketTypeStr = "QSO-Data"
+  if PacketType == 0 then
+    PacketTypeStr = "Tx-Ctrl"
   elseif PacketType == 1 then
     PacketTypeStr = "ACK"
   elseif PacketType == 2 then
     PacketTypeStr = "Idle-Keep-Alive?"
   elseif PacketType == 5 then
     PacketTypeStr = "Connection Start-Up?"
+  elseif PacketType == 0x20 then
+    PacketTypeStr = "QSO-Data"
   elseif PacketType == 0x24 then
     PacketTypeStr = "No PC connected?"
   else
@@ -80,7 +82,25 @@ function HyteraDissector(protname, prot, buffer, pinfo, tree)
 
   --subtree:add(buffer(4, 1), "?: " .. buffer(4, 1):uint())
   subtree:add(buffer(5, 1), "Sequence-Counter: " .. buffer(5, 1):uint())
-  if buffer:len() == 38 then
+
+  if PacketType == 0 and buffer:len() == 18 then
+    local CT = decodeCallType(buffer(11, 1):uint())
+    local DstId = reverseID(buffer(12, 3):uint())
+    local CheckSumPacket = buffer(16, 1):uint()
+    subtree:add(buffer(11, 1), "Call-Type: " .. CT)
+    subtree:add(buffer(12, 3), "Destination-ID: " .. DstId)
+    -- local CheckSumCalc = 0x62, i
+    -- for i = 11, 14 do
+    --   CheckSumCalc = bit32.bxor(CheckSumCalc, buffer(i, 1):uint())
+    -- end
+    -- subtree:add(buffer(16, 1), "CheckSum: " .. CheckSumPacket .. " (valid=" .. tostring(CheckSumPacket == CheckSumCalc) .. ")")
+    subtree:add(buffer(16, 1), "CheckSum: " .. CheckSumPacket)
+    PacketTypeStr = PacketTypeStr .. " Setup " .. CT .. "-call to " .. DstId
+  elseif PacketType == 0 and buffer:len() == 15 then
+    local PTTSwitch = buffer(12, 1):uint()
+    subtree:add(buffer(12, 1), "PTT switch: " .. PTTSwitch)
+    PacketTypeStr = PacketTypeStr .. " PTT: " .. PTTSwitch
+  elseif PacketType == 0x20 and buffer:len() == 38 then
     local RptId = buffer(9, 3):uint()
     local CT = decodeCallType(buffer(26, 1):uint())
     local DstId = reverseID(buffer(28, 3):uint())

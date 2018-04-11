@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+# Repeater Firmware: A8.05.07.001
 # Konvertierung nach Wave: $ sox -r 8000 -t raw -e u-law -c 1 HytBridge.TS1.raw out.wav
 
 import socket
