@@ -3,6 +3,7 @@
 # Repeater Firmware: A8.05.07.001
 # Konvertierung nach Wave: $ sox -r 8000 -t raw -e u-law -c 1 HytBridge.TS1.raw out.wav
 
+import os
 import socket
 import _thread
 import time
@@ -14,8 +15,10 @@ import wave
 # IP-Adresse vom Repeater:
 #LOCAL_IP = "127.0.0.1"
 #RPT_IP = "127.0.0.1"
-LOCAL_IP = "192.168.0.115"
-RPT_IP = "192.168.0.201"
+#LOCAL_IP = "192.168.0.115"
+#RPT_IP = "192.168.0.201"
+LOCAL_IP = "192.168.4.10"
+RPT_IP = "192.168.4.32"
 
 # UDP-Ports für die Steuerung:
 RCP_PORT_TS1 = 30009
@@ -25,9 +28,17 @@ RCP_PORT_TS2 = 30010
 RTP_PORT_TS1 = 30012
 RTP_PORT_TS2 = 30014
 
+# Wave file output path:
+WAVE_PATH = './'
+
+# Maximum seconds per wave file:
+MAX_SEC_PER_WAVEFILE = 300
+
 # Bei STRG+C beenden:
 def signal_handler(signal, frame):
-  print("Abort!")
+  print("Exit!")
+  AudioSlot1.flushWave()
+  AudioSlot2.flushWave()
   sys.exit(0)
 
 def decodeCallType(ct):
@@ -71,6 +82,11 @@ class AudioSlot:
     self.CallType = 0 # 0: Private 1: Group 2: AllCall
     self.DstId = 0
 
+    # Wave files:
+    self.WaveSegmentName = ''
+    self.wavefile = None
+    self.WaveDataWritten = False
+
     # Sockets anlegen:
     self.RCP_Sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     self.RTP_Sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -78,13 +94,13 @@ class AudioSlot:
     # Sockets an Ports binden:
     self.RCP_Sock.bind((LOCAL_IP, RCP_Port))
     self.RTP_Sock.bind((LOCAL_IP, RTP_Port))
-#    try:
     _thread.start_new_thread(self.RCP_Rx_Thread, (name,))
     _thread.start_new_thread(self.RTP_Rx_Thread, (name,))
     _thread.start_new_thread(self.TxIdleMsgThread, (name,))
     _thread.start_new_thread(self.TxAudioThread, (name,))
-#    except:
-#      print("ERROR: Unable to start threads!", name)
+
+  def __del__(self):
+   self.flushWave()
 
   def getNextRCPSeq(self):
     self.RCP_Seq = (self.RCP_Seq + 1) & 0xFF
@@ -127,6 +143,16 @@ class AudioSlot:
     rtp[7] = self.RTP_Timestamp & 0xFF
     self.RTP_Sock.sendto(rtp, (self.RptIP, self.RTP_Port))
 
+  def flushWave(self):
+    if len(self.WaveSegmentName) > 0:
+      self.wavefile.close()
+      self.wavefile = None
+      if self.WaveDataWritten:
+        os.rename(self.WaveSegmentName + '.tmp', self.WaveSegmentName)
+        self.WaveDataWritten = False
+      else: os.remove(self.WaveSegmentName + '.tmp')
+      self.WaveSegmentName = ''
+
   def RCP_Rx_Thread(self, threadName):
     #print(threadName, "RCP_Rx_Thread started")
     while True:
@@ -138,13 +164,21 @@ class AudioSlot:
 
   def RTP_Rx_Thread(self, threadName):
     #print(threadName, "RTP_Rx_Thread started")
-    wavefile = wave.open("HytAudioBridge." + threadName + ".wav", 'wb')
-    wavefile.setparams((1, 2, self.PCMSAMPLERATE, 0, 'NONE', 'not compressed'))
+    self.flushWave()
+    LastWaveSegmentChangeTime = -MAX_SEC_PER_WAVEFILE
     while True:
       data, addr = self.RTP_Sock.recvfrom(1024)
       #print(threadName, "RTP_Rx_Thread: received message:", data)
+      if time.time() - LastWaveSegmentChangeTime >= MAX_SEC_PER_WAVEFILE:
+        self.flushWave()
+        self.WaveSegmentName = WAVE_PATH + 'rec-' + threadName + '-' + time.strftime('%Y%m%d-%H%M') + '.wav'
+        print(threadName, ':', 'Beginning new segment \"' + self.WaveSegmentName + '\"...')
+        self.wavefile = wave.open(self.WaveSegmentName + '.tmp', 'wb')
+        self.wavefile.setparams((1, 2, self.PCMSAMPLERATE, 0, 'NONE', 'not compressed'))
+        LastWaveSegmentChangeTime = time.time()
       if data[0:2] == bytes.fromhex('9000'):
-        wavefile.writeframes(audioop.ulaw2lin(data[28:], 2))
+        self.wavefile.writeframes(audioop.ulaw2lin(data[28:], 2))
+        self.WaveDataWritten = True
 
   def TxIdleMsgThread(self, threadName):
     #print(threadName, "TxIdleMsgThread started")
@@ -186,17 +220,16 @@ signal.signal(signal.SIGINT, signal_handler)
 AudioSlot1 = AudioSlot("TS1", RPT_IP, RCP_PORT_TS1, RTP_PORT_TS1)
 AudioSlot2 = AudioSlot("TS2", RPT_IP, RCP_PORT_TS2, RTP_PORT_TS2)
 
-print("Waiting...")
-time.sleep(5)
-print("Sending...")
-AudioSlot1.playFile("testmsg.wav", 1, 2428)
+print("Recording (press CTRL+C to exit)...")
+#time.sleep(5)
+#print("Sending...")
+#AudioSlot1.playFile("testmsg.wav", 1, 2428)
 #AudioSlot1.playFile("testmsg.wav", 1, 2429)
 #AudioSlot1.playFile("testmsg.wav", 0, 2623305)
-time.sleep(10)
+#time.sleep(10)
 #print("Sending...")
-AudioSlot1.playFile("testmsg.wav", 1, 2428)
+#AudioSlot1.playFile("testmsg.wav", 1, 2428)
 #AudioSlot1.playFile("testmsg.wav", 0, 2623305)
-time.sleep(45)
+#time.sleep(45)
 
-print("Exit!")
-sys.exit(0)
+while True: time.sleep(60)
