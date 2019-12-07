@@ -22,6 +22,8 @@ Parts of the documentation are still in german as I had no time to translate it 
 # Author
 Main Development: Lars Struß, DK7LST (http://www.dk7lst.de/)
 
+Please understand that I can not provide support for this project as it is just a hobby project in my spare time.
+
 # License
 Open Source licensed under GPL v3, see "LICENSE"-file.
 
