@@ -100,7 +100,7 @@ class AudioSlot:
     _thread.start_new_thread(self.TxAudioThread, (name,))
 
   def __del__(self):
-   self.flushWave()
+    self.flushWave()
 
   def getNextRCPSeq(self):
     self.RCP_Seq = (self.RCP_Seq + 1) & 0xFF
