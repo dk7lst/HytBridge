@@ -27,12 +27,18 @@ RTP_PORT_TS2 = 30014
 
 # Mumble:
 MumbleServer = "localhost"
+MumblePort = 64738
 MumbleNick = "DMR-Gate"
 MumblePassword = ""
+MumbleChannel = ""
+
+# Volume Control Factors:
+MumbleVolume = 1.0
+RepeaterVolume = 1.0
 
 # DMR-Destination for Mumble-calls:
 DMR_CallType = 1 # 0: Private Call, 1: Group Call
-DMR_DstId = 1000 # TODO: Change me!
+DMR_DstId = 1000 # Change me!
 
 # Bei STRG+C beenden:
 def signal_handler(signal, frame):
@@ -148,7 +154,9 @@ class AudioSlot:
       data, addr = self.RTP_Sock.recvfrom(1024)
       #print(threadName, "RTP_Rx_Thread: received message:", data)
       if data[0:2] == bytes.fromhex('9000'):
-        buffer, newstate = audioop.ratecv(audioop.ulaw2lin(data[28:], 2), 2, 1, self.PCMSAMPLERATE, 48000, None)
+        buffer = audioop.ulaw2lin(data[28:], 2)
+        if RepeaterVolume != 1: buffer = audioop.mul(buffer, 2, RepeaterVolume)
+        buffer, newstate = audioop.ratecv(buffer, 2, 1, self.PCMSAMPLERATE, 48000, None)
         mumble.sound_output.add_sound(buffer)
 
   def TxIdleMsgThread(self, threadName):
@@ -186,6 +194,7 @@ def MumbleSoundReceivedHandler(user, soundchunk):
   #print("Received sound from user \"" + user['name'] + "\".")
   # Convert sound format. Mumble uses 16 bit mono 48 kHz little-endian, which needs to be downsampled to 8 kHz:
   buffer, newstate = audioop.ratecv(soundchunk.pcm, 2, 1, 48000, AudioSlot1.PCMSAMPLERATE, None)
+  if MumbleVolume != 1: buffer = audioop.mul(buffer, 2, MumbleVolume)
   AudioSlot1.playBuffer(buffer, DMR_CallType, DMR_DstId)
 
 print("HytMumbleBridge 0.01")
@@ -194,10 +203,13 @@ signal.signal(signal.SIGINT, signal_handler)
 AudioSlot1 = AudioSlot("TS1", RPT_IP, RCP_PORT_TS1, RTP_PORT_TS1)
 AudioSlot2 = AudioSlot("TS2", RPT_IP, RCP_PORT_TS2, RTP_PORT_TS2)
 
-mumble = pymumble.Mumble(MumbleServer, MumbleNick, password=MumblePassword)
+print("Connecting to Mumble server \"" + MumbleServer + "\" on port " + str(MumblePort) + "...")
+mumble = pymumble.Mumble(MumbleServer, MumbleNick, port=MumblePort, password=MumblePassword)
 mumble.callbacks.set_callback(PYMUMBLE_CLBK_SOUNDRECEIVED, MumbleSoundReceivedHandler)
-mumble.set_receive_sound(1)
+mumble.set_receive_sound(True)
 mumble.start()
+mumble.is_ready()
+if MumbleChannel > "": mumble.channels.find_by_name(MumbleChannel).move_in()
 
-print("Running (press CTRL+C to exit)...")
+print("Running... (press CTRL+C to exit)")
 while True: time.sleep(60)
